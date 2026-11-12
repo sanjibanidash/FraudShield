@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="10">{% endblock %}
+{% block content %}
+<h1>Live overview <span class="muted" style="font-size:13px;font-weight:400">last 24h · refreshes every 10s</span></h1>
+
+<div class="grid">
+  <div class="card kpi"><div class="label">Transactions scored</div><div class="value">{{ "{:,}".format(stats.total) }}</div></div>
+  <div class="card kpi"><div class="label">Throughput (last min)</div><div class="value">{{ stats.last_minute }}/min</div></div>
+  <div class="card kpi"><div class="label">Flagged as fraud</div><div class="value">{{ "{:,}".format(stats.flagged) }}</div><div class="muted">{{ stats.flag_rate|pct }} of traffic</div></div>
+  <div class="card kpi"><div class="label">Precision</div><div class="value">{{ stats.precision|pct }}</div><div class="muted">flagged that were really fraud</div></div>
+  <div class="card kpi"><div class="label">Recall</div><div class="value">{{ stats.recall|pct }}</div><div class="muted">fraud that we caught</div></div>
+  <div class="card kpi"><div class="label">Fraud amount caught</div><div class="value">{{ stats.fraud_amount_caught|money }}</div></div>
+  <div class="card kpi"><div class="label">API p95 latency</div><div class="value">{{ "%.1f"|format(stats.p95_latency or 0) }} ms</div><div class="muted">per micro-batch</div></div>
+  <div class="card kpi"><div class="label">Pending review</div><div class="value"><a href="/flagged">{{ stats.pending_review }}</a></div></div>
+</div>
+
+<div class="row" style="margin-top:16px">
+  <div class="card">
+    <h2 style="margin-top:0">Model</h2>
+    <div>Version: <code>{{ model.version }}</code></div>
+    {% if model.metrics %}
+    <div class="muted">Trigger: {{ model.trigger }} · trained {{ model.trained_at[:19] }}</div>
+    <div>Validation PR-AUC {{ "%.3f"|format(model.metrics.pr_auc or 0) }} · precision {{ model.metrics.precision|pct }} · recall {{ model.metrics.recall|pct }} · threshold {{ "%.3f"|format(model.metrics.threshold) }}</div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">Data drift</h2>
+    <div>Injected drift mode: <span class="pill {{ 'muted' if drift_mode == 'none' else 'warn' }}">{{ drift_mode }}</span></div>
+    {% if drift %}
+      <div>Latest check: {{ drift.created_at.strftime('%H:%M:%S') }} —
+        {% if drift.dataset_drift %}<span class="pill bad">DRIFT DETECTED</span>{% else %}<span class="pill good">stable</span>{% endif %}
+        {{ (drift.share_drifted * 100)|round(0)|int }}% of features drifted</div>
+      {% if drift.drifted_features %}<div class="muted">Drifted: {{ drift.drifted_features|join(', ') }}</div>{% endif %}
+    {% else %}<div class="muted">No drift check yet (needs ~500 scored transactions).</div>{% endif %}
+  </div>
+</div>
+
+<h2>Recent alerts</h2>
+{% if alerts %}
+<table><tr><th>Time</th><th>Status</th><th>Alert</th><th>Severity</th><th>Summary</th></tr>
+{% for a in alerts %}<tr><td>{{ a.received_at.strftime('%m-%d %H:%M:%S') }}</td>
+<td><span class="pill {{ 'bad' if a.status == 'firing' else 'good' }}">{{ a.status }}</span></td>
+<td>{{ a.alertname }}</td><td>{{ a.severity }}</td><td>{{ a.summary }}</td></tr>{% endfor %}
+</table>
+{% else %}<p class="muted">No alerts yet.</p>{% endif %}
+
+<p class="muted">Infra metrics → <a href="{{ grafana_url }}" target="_blank">Grafana</a> · JSON: <a href="/api/stats">/api/stats</a></p>
+{% endblock %}

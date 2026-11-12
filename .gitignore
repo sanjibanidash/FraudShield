@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+models/
+reports/
+data/raw/*.csv
+data/stream/
+data/batch/output/
+data/batch/processed/
+data/batch/input/*.csv
+!data/batch/input/.gitkeep
+*.log
+.DS_Store

@@ -1,0 +1,17 @@
+{
+  "name": "FraudShield",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "hostRequirements": { "cpus": 4, "memory": "8gb" },
+  "postCreateCommand": "pip install -r requirements-dev.txt && cp -n .env.example .env",
+  "forwardPorts": [5000, 8000, 3000, 9090],
+  "portsAttributes": {
+    "5000": { "label": "Dashboard (Flask)" },
+    "8000": { "label": "Scoring API (FastAPI)" },
+    "3000": { "label": "Grafana" },
+    "9090": { "label": "Prometheus" }
+  },
+  "customizations": { "vscode": { "extensions": ["ms-python.python", "charliermarsh.ruff"] } }
+}

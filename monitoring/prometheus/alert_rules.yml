@@ -1,0 +1,83 @@
+groups:
+  - name: service-health
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} is down (Prometheus cannot scrape it for 1m)"
+
+      - alert: ApiHighLatency
+        expr: histogram_quantile(0.95, sum(rate(api_request_latency_seconds_bucket{endpoint="/predict/batch"}[5m])) by (le)) > 0.5
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 scoring latency is {{ $value | humanizeDuration }} (> 500ms)"
+
+      - alert: ApiErrors
+        expr: sum(rate(api_requests_total{status=~"5.."}[5m])) > 0.1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Scoring API returns 5xx errors ({{ $value | printf \"%.2f\" }}/s)"
+
+  - name: pipeline
+    rules:
+      - alert: ConsumerStalled
+        expr: sum(rate(producer_messages_total[2m])) > 0 and on() sum(rate(consumer_messages_total[2m])) == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Producer is sending but the consumer has scored nothing for 2 minutes"
+
+      - alert: HighEndToEndLatency
+        expr: histogram_quantile(0.95, sum(rate(consumer_end_to_end_latency_seconds_bucket[5m])) by (le)) > 5
+        for: 3m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 produce->stored latency is {{ $value | printf \"%.1f\" }}s (> 5s) - consumer lagging"
+
+      - alert: FraudRateSpike
+        expr: sum(rate(consumer_fraud_flagged_total[5m])) / sum(rate(consumer_messages_total[5m])) > 0.03
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of transactions flagged as fraud (normal is < 1%)"
+
+  - name: ml-monitoring
+    rules:
+      - alert: DataDriftDetected
+        expr: fraudshield_dataset_drift == 1
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "Live traffic no longer looks like the training data - the batch job will retrain the model"
+
+      - alert: FeatureDrift
+        expr: fraudshield_feature_psi > 0.25
+        for: 2m
+        labels: { severity: info }
+        annotations:
+          summary: "Feature {{ $labels.feature }} PSI = {{ $value | printf \"%.2f\" }}"
+
+      - alert: ModelRecallLow
+        expr: fraudshield_model_recall < 0.6
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Model recall dropped to {{ $value | humanizePercentage }} - fraud is slipping through"
+
+      - alert: DriftMonitorNotRunning
+        expr: time() - fraudshield_monitor_last_run_timestamp > 600
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Drift monitor has not completed a run for >10 minutes"
+
+      - alert: BatchJobFailed
+        expr: batch_last_run_success == 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "Last batch run (bulk scoring / report / retrain) failed - check `docker compose logs batch`"

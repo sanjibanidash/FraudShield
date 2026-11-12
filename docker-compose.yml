@@ -1,0 +1,225 @@
+# FraudShield - full stack in one command:   docker compose up -d --build
+#
+#  postgres  kafka(+init)  trainer(one-shot)  api  consumer  producer  monitor  batch  dashboard
+#  prometheus  alertmanager  grafana
+#
+# Images: built locally as fraudshield/<svc>:local. In the cloud, REGISTRY/IMAGE_TAG in .env point
+# to the images CI pushed to GitHub Container Registry, and the VM just pulls them.
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-fraud}:${POSTGRES_PASSWORD:-fraud}@postgres:5432/${POSTGRES_DB:-fraudshield}
+  KAFKA_BOOTSTRAP: kafka:9092
+  API_URL: http://api:8000
+  ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }   # keep disk usage bounded on the free VM
+
+services:
+  # ---------------------------------------------------------------- storage & messaging
+  postgres:
+    image: postgres:16-alpine
+    <<: [*restart, *logging]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fraud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraud}
+      POSTGRES_DB: ${POSTGRES_DB:-fraudshield}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports: ["${BIND_ADDR:-0.0.0.0}:5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraud} -d ${POSTGRES_DB:-fraudshield}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.9.0          # KRaft mode - no ZooKeeper needed
+    <<: [*restart, *logging]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_RETENTION_HOURS: 24          # stream data is replayable; keep disk small
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"   # fits the free 12 GB VM comfortably
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    ports: ["${BIND_ADDR:-0.0.0.0}:29092:29092"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  kafka-init:
+    image: apache/kafka:3.9.0
+    depends_on: { kafka: { condition: service_healthy } }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic transactions --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic fraud-alerts --partitions 1 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+    restart: "no"
+
+  # ---------------------------------------------------------------- ML
+  trainer:   # one-shot: trains the first model + prepares the stream file (skips if already done)
+    image: ${REGISTRY:-fraudshield}/ml:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: services/ml/Dockerfile, args: { INSTALL_EVIDENTLY: "${INSTALL_EVIDENTLY:-true}" } }
+    <<: *logging
+    command: ["python", "/app/training/train.py", "--if-missing"]
+    environment:
+      <<: *app-env
+      SYNTHETIC_ROWS: ${SYNTHETIC_ROWS:-300000}
+      MAX_LEGIT_TRAIN_ROWS: ${MAX_LEGIT_TRAIN_ROWS:-600000}
+    volumes:
+      - models:/app/models
+      - streamdata:/app/data/stream
+      - ./data/raw:/app/data/raw:ro      # put paysim.csv here to use the real dataset
+    restart: "no"
+
+  api:
+    image: ${REGISTRY:-fraudshield}/api:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: services/api/Dockerfile }
+    <<: [*restart, *logging]
+    depends_on: { trainer: { condition: service_completed_successfully } }
+    environment: *app-env
+    volumes: ["models:/app/models:ro"]
+    ports: ["${API_PORT:-8000}:8000"]
+
+  consumer:
+    image: ${REGISTRY:-fraudshield}/consumer:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: services/consumer/Dockerfile }
+    <<: [*restart, *logging]
+    depends_on:
+      api: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    environment:
+      <<: *app-env
+      CONSUMER_BATCH_SIZE: ${CONSUMER_BATCH_SIZE:-100}
+
+  producer:
+    image: ${REGISTRY:-fraudshield}/producer:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: services/producer/Dockerfile }
+    <<: [*restart, *logging]
+    depends_on:
+      trainer: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    environment:
+      <<: *app-env
+      PRODUCER_TPS: ${PRODUCER_TPS:-20}
+    volumes: ["streamdata:/app/data/stream:ro"]
+
+  monitor:
+    image: ${REGISTRY:-fraudshield}/ml:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: services/ml/Dockerfile, args: { INSTALL_EVIDENTLY: "${INSTALL_EVIDENTLY:-true}" } }   # same image as trainer (cached)
+    <<: [*restart, *logging]
+    command: ["python", "/app/service/monitor.py"]
+    depends_on:
+      trainer: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+    environment:
+      <<: *app-env
+      METRICS_PORT: 8003
+      MONITOR_INTERVAL: ${MONITOR_INTERVAL:-60}
+      MONITOR_WINDOW: ${MONITOR_WINDOW:-3000}
+      MONITOR_MIN_ROWS: ${MONITOR_MIN_ROWS:-500}
+    volumes: ["models:/app/models:ro", "reports:/app/reports"]
+
+  batch:
+    image: ${REGISTRY:-fraudshield}/ml:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: services/ml/Dockerfile, args: { INSTALL_EVIDENTLY: "${INSTALL_EVIDENTLY:-true}" } }   # same image as trainer (cached)
+    <<: [*restart, *logging]
+    command: ["python", "/app/service/batch_job.py"]
+    depends_on:
+      api: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    environment:
+      <<: *app-env
+      METRICS_PORT: 8004
+      BATCH_INTERVAL: ${BATCH_INTERVAL:-900}      # demo: every 15 min
+      BATCH_DAILY_AT: ${BATCH_DAILY_AT:-}          # prod: e.g. "02:00" (UTC) for a nightly run
+    volumes:
+      - models:/app/models
+      - reports:/app/reports
+      - ./data/batch:/app/data/batch               # drop CSVs in data/batch/input -> scored files in data/batch/output
+
+  dashboard:
+    image: ${REGISTRY:-fraudshield}/dashboard:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: services/dashboard/Dockerfile }
+    <<: [*restart, *logging]
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      <<: *app-env
+      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      PUBLIC_GRAFANA_URL: ${PUBLIC_GRAFANA_URL:-http://localhost:3000}
+    volumes: ["models:/app/models:ro", "reports:/app/reports:ro"]
+    ports: ["${DASHBOARD_PORT:-5000}:5000"]
+
+  # ---------------------------------------------------------------- observability
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    <<: [*restart, *logging]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - promdata:/prometheus
+    ports: ["${BIND_ADDR:-0.0.0.0}:9090:9090"]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    <<: [*restart, *logging]
+    volumes: ["./monitoring/alertmanager:/etc/alertmanager:ro"]
+    ports: ["${BIND_ADDR:-0.0.0.0}:9093:9093"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    <<: [*restart, *logging]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS:-true}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fraudshield.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  pgdata:
+  kafkadata:
+  models:
+  reports:
+  streamdata:
+  promdata:
+  grafanadata:

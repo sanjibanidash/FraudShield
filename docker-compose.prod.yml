@@ -1,0 +1,21 @@
+# Production overrides for the free cloud VM:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# - never builds on the VM: images come from GitHub Container Registry (built by CI)
+# - memory limits sized for Oracle Always Free (2 OCPU / 12 GB ARM)
+# - only dashboard (5000), API (8000) and Grafana (3000) are public; set BIND_ADDR=127.0.0.1 in .env
+
+x-pull: &pull
+  pull_policy: always
+
+services:
+  trainer:   { <<: *pull, build: !reset null }
+  api:       { <<: *pull, build: !reset null, deploy: { resources: { limits: { memory: 1g } } } }
+  consumer:  { <<: *pull, build: !reset null, deploy: { resources: { limits: { memory: 512m } } } }
+  producer:  { <<: *pull, build: !reset null, deploy: { resources: { limits: { memory: 768m } } } }
+  monitor:   { <<: *pull, build: !reset null, deploy: { resources: { limits: { memory: 1g } } } }
+  batch:     { <<: *pull, build: !reset null, deploy: { resources: { limits: { memory: 2g } } } }
+  dashboard: { <<: *pull, build: !reset null, deploy: { resources: { limits: { memory: 512m } } } }
+  kafka:     { deploy: { resources: { limits: { memory: 1g } } } }
+  postgres:  { deploy: { resources: { limits: { memory: 1g } } } }
+  prometheus: { deploy: { resources: { limits: { memory: 512m } } } }
+  grafana:   { deploy: { resources: { limits: { memory: 512m } } } }

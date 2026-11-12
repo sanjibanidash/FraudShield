@@ -1,0 +1,22 @@
+[project]
+name = "fraudshield"
+version = "1.0.0"
+description = "Real-time fraud detection: Kafka streaming, FastAPI serving, drift monitoring, MLOps on a free stack"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["data", "models", "reports"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fraudshield_common"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["common", "services/api", "services/dashboard"]
+filterwarnings = ["ignore::DeprecationWarning"]

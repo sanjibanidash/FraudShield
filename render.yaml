@@ -1,0 +1,13 @@
+# Render Blueprint - free public demo of the scoring API (Render dashboard -> New -> Blueprint -> pick this repo)
+services:
+  - type: web
+    name: fraudshield-api
+    runtime: docker
+    plan: free
+    dockerContext: .
+    dockerfilePath: ./services/api/Dockerfile.render
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: LOG_LEVEL
+        value: INFO

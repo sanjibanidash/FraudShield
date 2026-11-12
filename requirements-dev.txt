@@ -1,0 +1,8 @@
+# Everything needed to run the tests + lint locally / in CI (no Kafka or Postgres required)
+-r services/api/requirements.txt
+flask==3.1.0
+requests==2.32.3
+psycopg2-binary==2.9.10
+httpx==0.28.1
+pytest==8.3.5
+ruff==0.11.8

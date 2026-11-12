@@ -1,0 +1,29 @@
+# Standalone API image for Render's FREE web service (no Kafka/Postgres needed).
+# The model is trained at BUILD time on synthetic data and baked into the image, so the
+# public /docs page works on its own. Free instances sleep after ~15 min idle (≈1 min cold start).
+
+# ---------- stage 1: train ----------
+FROM python:3.12-slim AS trainer
+ENV PYTHONPATH=/app/common PROJECT_ROOT=/app MODEL_DIR=/app/models DATA_DIR=/app/data \
+    SYNTHETIC_ROWS=150000 PIP_NO_CACHE_DIR=1 LOG_FORMAT=text
+WORKDIR /app
+COPY services/ml/requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
+COPY common /app/common
+COPY training /app/training
+RUN python training/train.py
+
+# ---------- stage 2: serve ----------
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app/common PROJECT_ROOT=/app MODEL_DIR=/app/models
+WORKDIR /app
+COPY services/api/requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
+COPY common /app/common
+COPY services/api /app/service
+COPY --from=trainer /app/models /app/models
+RUN useradd --create-home --uid 1000 app
+USER app
+# Render injects $PORT
+CMD uvicorn main:app --app-dir /app/service --host 0.0.0.0 --port ${PORT:-8000}

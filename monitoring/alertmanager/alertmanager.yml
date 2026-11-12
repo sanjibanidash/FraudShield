@@ -1,0 +1,19 @@
+# All alerts go to the dashboard webhook, which stores them (Alerts page) and forwards them to
+# Slack / Discord / Telegram if those env vars are set on the dashboard service (all free).
+route:
+  receiver: dashboard
+  group_by: ["alertname"]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 1h
+
+receivers:
+  - name: dashboard
+    webhook_configs:
+      - url: http://dashboard:5000/webhook/alertmanager
+        send_resolved: true
+
+inhibit_rules:
+  # if a service is down, don't also spam the symptoms
+  - source_matchers: [alertname="ServiceDown"]
+    target_matchers: [alertname=~"ConsumerStalled|HighEndToEndLatency"]

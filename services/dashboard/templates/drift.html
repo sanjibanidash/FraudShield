@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Drift{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block content %}
+<h1>Data drift monitoring</h1>
+<p class="muted">Recent scored traffic vs. the model's training reference. PSI &lt; 0.1 stable · 0.1–0.2 moderate · &gt; 0.2 drift.
+{% if has_html %} · <a href="/drift/report" target="_blank">Open latest Evidently report ↗</a>{% endif %}</p>
+
+{% if latest %}
+{% set d = latest.details.drift %}{% set perf = latest.details.performance %}
+<div class="row">
+<div>
+<h2>Latest check · {{ latest.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</h2>
+<table><tr><th>Feature</th><th class="num">PSI</th><th class="num">Reference mean / dist</th><th class="num">Current mean / dist</th><th>Status</th></tr>
+{% for name, f in d.features.items() %}
+<tr><td>{{ name }}</td><td class="num"><b>{{ "%.3f"|format(f.psi) }}</b></td>
+<td class="num">{% if f.kind == 'numeric' %}{{ f.ref_mean|money }}{% else %}<span class="muted">{{ f.ref_dist }}</span>{% endif %}</td>
+<td class="num">{% if f.kind == 'numeric' %}{{ f.cur_mean|money }}{% else %}<span class="muted">{{ f.cur_dist }}</span>{% endif %}</td>
+<td>{% if f.drifted %}<span class="pill bad">drift</span>{% else %}<span class="pill good">ok</span>{% endif %}</td></tr>
+{% endfor %}
+</table>
+</div>
+<div style="max-width:340px">
+<h2>Live model performance</h2>
+<div class="card">
+  <div>Window: {{ perf.labeled_rows }} labeled tx · {{ perf.true_fraud }} fraud</div>
+  <div>Precision: <b>{{ perf.precision|pct }}</b> · Recall: <b>{{ perf.recall|pct }}</b></div>
+  <div class="muted">TP {{ perf.tp }} · FP {{ perf.fp }} · FN {{ perf.fn }}</div>
+  <div class="muted">Predicted fraud rate {{ perf.predicted_fraud_rate|pct }} · actual {{ perf.actual_fraud_rate|pct }}</div>
+</div>
+</div>
+</div>
+{% endif %}
+
+<h2>History</h2>
+<table><tr><th>Time</th><th class="num">Window</th><th class="num">Drifted share</th><th>Dataset drift</th><th>Drifted features</th></tr>
+{% for r in rows %}<tr><td>{{ r.created_at.strftime('%m-%d %H:%M:%S') }}</td><td class="num">{{ r.window_size }}</td>
+<td class="num">{{ r.share_drifted|pct }}</td>
+<td>{% if r.dataset_drift %}<span class="pill bad">yes</span>{% else %}<span class="pill good">no</span>{% endif %}</td>
+<td class="muted">{{ (r.drifted_features or [])|join(', ') }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No drift checks yet.</td></tr>{% endfor %}
+</table>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Models{% endblock %}
+{% block content %}
+<h1>Model registry</h1>
+<table>
+<tr><th>Version</th><th>Status</th><th>Trigger</th><th>Data</th><th class="num">Train rows</th><th class="num">PR-AUC</th>
+<th class="num">Precision</th><th class="num">Recall</th><th class="num">Threshold</th><th>Trained at</th></tr>
+{% for m in versions %}
+<tr><td><code>{{ m.version }}</code></td>
+<td>{% if m.version == current %}<span class="pill good">champion</span>{% else %}<span class="pill muted">archived</span>{% endif %}</td>
+<td>{{ m.trigger }}</td><td>{{ m.data_source }}</td><td class="num">{{ "{:,}".format(m.n_train) }}</td>
+<td class="num">{{ "%.3f"|format(m.metrics.pr_auc or 0) }}</td><td class="num">{{ m.metrics.precision|pct }}</td>
+<td class="num">{{ m.metrics.recall|pct }}</td><td class="num">{{ "%.3f"|format(m.metrics.threshold) }}</td>
+<td class="muted">{{ m.trained_at[:19] }}</td></tr>
+{% endfor %}
+</table>
+
+<h2>Retraining events (champion vs challenger)</h2>
+<table><tr><th>Time</th><th>Result</th><th>Version</th><th>Details</th></tr>
+{% for e in events %}<tr><td>{{ e.created_at.strftime('%m-%d %H:%M:%S') }}</td>
+<td><span class="pill {{ 'good' if e.event == 'promoted' else 'warn' }}">{{ e.event }}</span></td>
+<td><code>{{ e.version }}</code></td>
+<td class="muted">reason={{ e.details.reason }} · {{ e.details.metric }}: challenger {{ "%.3f"|format(e.details.challenger or 0) }} vs champion {{ "%.3f"|format(e.details.champion or 0) }}</td></tr>
+{% else %}<tr><td colspan="4" class="muted">No retraining yet.</td></tr>{% endfor %}
+</table>
+{% endblock %}

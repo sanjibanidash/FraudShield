@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Flagged{% endblock %}
+{% block content %}
+<h1>Flagged transactions</h1>
+<p class="muted">Analyst feedback is stored with the transaction and used as the label when the model is retrained.
+  <b>Truth</b> = simulated delayed ground truth (chargeback) from the dataset.</p>
+<p>
+  <a class="btn" href="?status=pending" {% if status=='pending' %}style="border-color:#2f5bea"{% endif %}>Pending</a>
+  <a class="btn" href="?status=reviewed" {% if status=='reviewed' %}style="border-color:#2f5bea"{% endif %}>Reviewed</a>
+  <a class="btn" href="?status=all" {% if status=='all' %}style="border-color:#2f5bea"{% endif %}>All</a>
+</p>
+<table>
+<tr><th>Time</th><th>Type</th><th class="num">Amount</th><th>From → To</th><th class="num">Balance before → after</th>
+<th class="num">Score</th><th>Truth</th><th>Review</th></tr>
+{% for r in rows %}
+<tr>
+  <td>{{ r.scored_at.strftime('%H:%M:%S') }}</td>
+  <td>{{ r.type }}</td>
+  <td class="num">{{ r.amount|money }}</td>
+  <td class="muted">{{ r.name_orig }} → {{ r.name_dest }}</td>
+  <td class="num">{{ r.oldbalance_org|money }} → {{ r.newbalance_orig|money }}</td>
+  <td class="num"><b>{{ "%.3f"|format(r.fraud_probability) }}</b></td>
+  <td>{% if r.true_label == 1 %}<span class="pill bad">fraud</span>{% elif r.true_label == 0 %}<span class="pill good">legit</span>{% else %}-{% endif %}</td>
+  <td>
+    {% if r.analyst_label %}<span class="pill {{ 'bad' if r.analyst_label == 'fraud' else 'good' }}">{{ r.analyst_label }}</span>
+    {% else %}
+    <form method="post" action="/review/{{ r.tx_id }}" style="display:inline">
+      <button class="danger" name="label" value="fraud">Confirm fraud</button>
+      <button class="ok" name="label" value="legit">False alarm</button>
+    </form>
+    {% endif %}
+  </td>
+</tr>
+{% else %}<tr><td colspan="8" class="muted">Nothing here.</td></tr>{% endfor %}
+</table>
+{% endblock %}

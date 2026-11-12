@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FraudShield · {% block title %}{% endblock %}</title>
+  {% block head %}{% endblock %}
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#6b7385; --line:#e3e6ec;
+            --accent:#2f5bea; --bad:#c62f3a; --good:#1f8a4c; --warn:#b7791f; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+    header { background:#111827; color:#fff; padding:0 24px; display:flex; align-items:center; gap:28px; height:56px; }
+    header .brand { font-weight:700; font-size:16px; letter-spacing:.2px; }
+    header nav a { color:#cbd2e1; text-decoration:none; margin-right:18px; }
+    header nav a:hover, header nav a.active { color:#fff; }
+    main { max-width:1200px; margin:24px auto; padding:0 24px; }
+    h1 { font-size:22px; margin:0 0 16px; } h2 { font-size:16px; margin:24px 0 10px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+    .kpi .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+    .kpi .value { font-size:24px; font-weight:650; margin-top:4px; font-variant-numeric:tabular-nums; }
+    table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+    th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; font-variant-numeric:tabular-nums; }
+    th { background:#fafbfc; color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; }
+    tr:last-child td { border-bottom:none; }
+    .num { text-align:right; }
+    .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+    .pill.bad { background:#fde8ea; color:var(--bad); } .pill.good { background:#e3f5ea; color:var(--good); }
+    .pill.warn { background:#fdf3e1; color:var(--warn); } .pill.muted { background:#eef0f4; color:var(--muted); }
+    button, .btn { border:1px solid var(--line); background:#fff; border-radius:7px; padding:5px 10px; cursor:pointer; font:inherit; text-decoration:none; color:var(--ink); }
+    button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    button.danger { color:var(--bad); } button.ok { color:var(--good); }
+    .muted { color:var(--muted); } .flash { background:#eef3ff; border:1px solid #c9d6ff; padding:10px 14px; border-radius:8px; margin-bottom:16px; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; } .row > * { flex:1; min-width:300px; }
+    select { padding:5px; border-radius:7px; border:1px solid var(--line); font:inherit; }
+    code { background:#eef0f4; padding:1px 5px; border-radius:4px; }
+  </style>
+</head>
+<body>
+<header>
+  <span class="brand">🛡️ FraudShield</span>
+  <nav>
+    {% set p = request.path %}
+    <a href="/" class="{{ 'active' if p == '/' }}">Overview</a>
+    <a href="/flagged" class="{{ 'active' if p.startswith('/flagged') }}">Flagged</a>
+    <a href="/drift" class="{{ 'active' if p.startswith('/drift') }}">Drift</a>
+    <a href="/models" class="{{ 'active' if p.startswith('/models') }}">Models</a>
+    <a href="/alerts" class="{{ 'active' if p.startswith('/alerts') }}">Alerts</a>
+    <a href="/controls" class="{{ 'active' if p.startswith('/controls') }}">Controls</a>
+  </nav>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="15">{% endblock %}
+{% block content %}
+<h1>Alerts</h1>
+<p class="muted">Prometheus evaluates the alert rules → Alertmanager groups them → webhook to this dashboard
+  (and on to Slack / Discord / Telegram if configured).</p>
+<table><tr><th>Received</th><th>Status</th><th>Alert</th><th>Severity</th><th>Summary</th></tr>
+{% for a in rows %}<tr><td>{{ a.received_at.strftime('%m-%d %H:%M:%S') }}</td>
+<td><span class="pill {{ 'bad' if a.status == 'firing' else 'good' }}">{{ a.status }}</span></td>
+<td>{{ a.alertname }}</td><td>{{ a.severity }}</td><td>{{ a.summary }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No alerts received yet.</td></tr>{% endfor %}
+</table>
+{% endblock %}
